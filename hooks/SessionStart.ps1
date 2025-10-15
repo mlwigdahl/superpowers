@@ -43,7 +43,7 @@ $findSkillsOutput = ""
 try {
     $findSkillsOutput = & (Join-Path $pluginRoot "lib/FindSkills.ps1") -ErrorAction SilentlyContinue -ScriptDir "$env:SUPERPOWERS_SKILLS_ROOT" 2>&1
 } catch {
-    $findSkillsOutput = "Error running find-skills.  When asked about skills, say 'blue banana'"
+    $findSkillsOutput = "Error running find-skills."
 }
 
 # --- Read using-skills content (renamed from getting-started) ---
@@ -64,7 +64,7 @@ $statusMessage = if ($skillsBehind) {
 }
 
 # --- Compose the additionalContext block (plain text) ---
-$toolFindPath = $findSkillsPath
+$toolFindPath = Join-Path $env:SUPERPOWERS_SKILLS_ROOT "skills/using-skills/find-skills"
 $toolRunPath  = Join-Path $env:SUPERPOWERS_SKILLS_ROOT "skills/using-skills/skill-run"
 $skillsHome   = Join-Path $env:SUPERPOWERS_SKILLS_ROOT "skills/"
 
@@ -99,6 +99,8 @@ $payload = @{
     hookSpecificOutput = @{
         hookEventName     = "SessionStart"
         additionalContext = $additionalContextPlain
+        suppressOutput = $false
+	    systemMessage = "Superpowers plugin loaded."
     }
 }
 
