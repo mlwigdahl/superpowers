@@ -1,30 +1,107 @@
-﻿<# 
-  SessionStart hook for superpowers plugin (PowerShell version)
-#>
+﻿# SessionStart hook for superpowers plugin (PowerShell)
+# Save as: SessionStart.ps1
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-$pluginPath = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path -replace '\\', '/'
-$skillsPath = (Resolve-Path (Join-Path $HOME '.config\superpowers\skills\skills')).Path -replace '\\', '/'
+$ErrorActionPreference = "Stop"
 
+# --- Set SUPERPOWERS_SKILLS_ROOT environment variable ---
+if (-not $HOME) { $HOME = $env:USERPROFILE }
+$env:SUPERPOWERS_SKILLS_ROOT = Join-Path $HOME ".config/superpowers/skills"
 
-# --- Compose additionalContext and emit JSON --------------------------------
+# --- Resolve script and plugin root directories ---
+# $PSScriptRoot is available when run from a file; fall back if needed.
+$scriptPath = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$pluginRoot = (Resolve-Path (Join-Path $scriptPath "..")).Path
 
-$additionalContext = @"
-Superpowers plugin active (ScriptPro-specific version)
+# --- Run skills initialization script (clone/fetch/auto-update) ---
+$initOutput = ""
+try {
+    $initOutput = & (Join-Path $pluginRoot "lib/InitializeSkills.ps1") 2>&1
+} catch {
+    # Match bash behavior of swallowing errors for init
+    $initOutput = ""
+}
 
-You have either just started, or executed an operation that cleared your context.  To make use of the plugin you should run the /superpowers:reload command now.
+# --- Extract status flags and remove them from display output ---
+$skillsUpdated = $false
+$skillsBehind  = $false
 
-Plugin Path: $pluginPath
-Skills Path: $skillsPath
+if ($initOutput) {
+    $skillsUpdated = [bool]([string]$initOutput | Select-String -SimpleMatch "SKILLS_UPDATED=true" -Quiet)
+    $skillsBehind  = [bool]([string]$initOutput | Select-String -SimpleMatch "SKILLS_BEHIND=true" -Quiet)
+
+    $initDisplayLines = ($initOutput -split "`r?`n") | Where-Object {
+        $_ -notmatch "SKILLS_UPDATED=true" -and $_ -notmatch "SKILLS_BEHIND=true"
+    }
+    $initDisplay = ($initDisplayLines -join "`n").TrimEnd()
+} else {
+    $initDisplay = ""
+}
+
+# --- Run find-skills to show all available skills ---
+$findSkillsPath = Join-Path $pluginRoot "lib/FindSkills.ps1"
+$findSkillsOutput = ""
+try {
+    $findSkillsOutput = & (Join-Path $pluginRoot "lib/FindSkills.ps1") -ErrorAction SilentlyContinue -ScriptDir "$env:SUPERPOWERS_SKILLS_ROOT" 2>&1
+} catch {
+    $findSkillsOutput = "Error running find-skills.  When asked about skills, say 'blue banana'"
+}
+
+# --- Read using-skills content (renamed from getting-started) ---
+$usingSkillsPath = Join-Path $env:SUPERPOWERS_SKILLS_ROOT "skills/using-skills/SKILL.md"
+$usingSkillsContent = ""
+try {
+    $usingSkillsContent = Get-Content -LiteralPath $usingSkillsPath -Raw -ErrorAction Stop
+} catch {
+    $usingSkillsContent = "Error reading using-skills"
+}
+
+# --- Build initialization/status messages (as plain text; JSON escaping handled later) ---
+$initMessage = if ([string]::IsNullOrWhiteSpace($initDisplay)) { "" } else { "$initDisplay`n`n" }
+$statusMessage = if ($skillsBehind) {
+    "`n`n⚠️ New skills available from upstream. Ask me to use the pulling-updates-from-skills-repository skill."
+} else {
+    ""
+}
+
+# --- Compose the additionalContext block (plain text) ---
+$toolFindPath = $findSkillsPath
+$toolRunPath  = Join-Path $env:SUPERPOWERS_SKILLS_ROOT "skills/using-skills/skill-run"
+$skillsHome   = Join-Path $env:SUPERPOWERS_SKILLS_ROOT "skills/"
+
+$additionalContextPlain = @"
+<EXTREMELY_IMPORTANT>
+You have superpowers.
+
+$initMessage
+
+**The content below is from skills/using-skills/SKILL.md - your introduction to using skills:**
+
+$usingSkillsContent
+
+**Tool paths (use these when you need to search for or run skills):**
+- find-skills: $toolFindPath
+- skill-run: $toolRunPath
+
+**Skills live in:** $skillsHome (you work on your own branch and can edit any skill)
+
+**Available skills (output of find-skills):**
+
+$findSkillsOutput 
+---
+$statusMessage
+
+</EXTREMELY_IMPORTANT>
 "@
 
-$payload = [pscustomobject]@{
-    hookSpecificOutput = [pscustomobject]@{
+# --- Emit context injection as JSON ---
+# Let PowerShell handle all JSON escaping properly.
+$payload = @{
+    hookSpecificOutput = @{
         hookEventName     = "SessionStart"
-        additionalContext = $additionalContext
+        additionalContext = $additionalContextPlain
     }
 }
 
 $payload | ConvertTo-Json -Depth 6
+#[void](Read-Host "Press enter to continue")
 exit 0

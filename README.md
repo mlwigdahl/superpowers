@@ -1,3 +1,7 @@
+## NOTE!
+
+This repository is forked from obra/superpowers to support Claude Code running under native Windows
+
 # Superpowers
 
 Give Claude Code superpowers with a comprehensive skills library of proven techniques, patterns, and tools.
